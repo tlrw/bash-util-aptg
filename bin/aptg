@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 declare -i APTG_TRY_LIMIT="${APTG_TRY_LIMIT:-3}"
-declare    APTG_MANUAL_PACKAGES=""
+declare -x APTG_MIP_DUMP="${APTG_MIP_DUMP:-/tmp/apg_mip_dump}"
 
 aptg_try() {
     declare -ri tryLimit="${APTG_TRY_LIMIT}"
@@ -39,37 +39,67 @@ aptg_try() {
 }
 
 aptg_clean() {
-    rm -fr /var/cache/apt/archives/
-    rm -fr /var/lib/apt/lists/*
-    rm -fr /var/log/apt/*
-    rm -f  /var/log/dpkg.log
-    rm -fr /tmp/*
+    {
+        rm -fr /var/cache/apt/archives/
+        rm -fr /var/lib/apt/lists/*
+        rm -fr /var/log/apt/*
+        rm -f  /var/log/dpkg.log
+        rm -fr /tmp/*
+    } && {
+        return
+    }
+
+    return 1
+}
+
+aptg_mip_dump_remove() {
+    return
+    if ! rm -f "${APTG_MIP_DUMP}"; then
+        echo "${BASH_SOURCE[0]}: could not remove dump of manual installed packages ${APTG_MIP_DUMP}" >&2
+    fi
 }
 
 aptg_purge_temporary_main() {
-    if [[ -z "${APTG_MANUAL_PACKAGES:-}" ]]; then
-        echo "${BASH_SOURCE[0]}: nothing to purge"
+    if ! [[ -f "${APTG_MIP_DUMP:-}" ]]; then
+        echo "${BASH_SOURCE[0]}: could not purge temporary installed packages without dump of manual installed ones: no file ${APTG_MIP_DUMP}"
 
-        return
+        exit 1
+    fi
+
+    declare mipPackages
+
+    if ! mipPackages="$(cat "${APTG_MIP_DUMP}")"; then
+        echo "${BASH_SOURCE[0]}: could not read dump of manual installed packages from ${APTG_MIP_DUMP}" >&2
+
+        exit 1
+    fi
+
+    if [[ -n "${mipPackages}" ]] && ! apt-mark manual "${mipPackages}" >/dev/null; then
+        echo "${BASH_SOURCE[0]}: could not purge temporary installed packages without mark of manual installed packages"
+
+        aptg_mip_dump_remove
+
+        exit 1
     fi
 
     # shellcheck disable=SC2015
-    {
-        apt-mark auto '.*' >/dev/null
-        apt-mark manual "${APTG_MANUAL_PACKAGES}" >/dev/null
-    } && {
+    apt-mark auto '.*' >/dev/null && {
         apt-get --assume-yes purge --auto-remove --option APT::AutoRemove::RecommendsImportant=false
     } || {
-        echo "${BASH_SOURCE[0]}: could not purge temporary installed packages" >&2
+        echo "${BASH_SOURCE[0]}: could not complete purge of temporary installed packages" >&2
+
+        aptg_mip_dump_remove
 
         exit 1
     }
 
+    aptg_mip_dump_remove
     aptg_clean
 }
 
 aptg_install_main() {
-    declare temporaryMode="no" arg
+    declare -a packages
+    declare    temporaryMode="no" arg
 
     for arg in "$@"; do
         case "${arg}" in
@@ -81,6 +111,8 @@ aptg_install_main() {
 
                 exit 1
                 ;;
+            *)
+                packages+=("${arg}")
         esac
     done
 
@@ -91,10 +123,14 @@ aptg_install_main() {
     }
 
     if [[ "${temporaryMode}" == "yes" ]]; then
-        APTG_MANUAL_PACKAGES="$(apt-mark showmanual)"
+        apt-mark showmanual >>"${APTG_MIP_DUMP}" || {
+            echo "${BASH_SOURCE[0]}: could not to write dump of manual installed packages to ${APTG_MIP_DUMP}" >&2
+
+            exit 1
+        }
     fi
 
-    aptg_try apt-get --assume-yes install --no-install-recommends "$@" || {
+    aptg_try apt-get --assume-yes install --no-install-recommends "${packages[@]}" || {
         echo "${BASH_SOURCE[0]}: could not complete installation of: $*" >&2
 
         exit 1
