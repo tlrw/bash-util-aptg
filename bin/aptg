@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 
-declare -i APTG_TRY_LIMIT=3
+declare -i APTG_TRY_LIMIT="${APTG_TRY_LIMIT:-3}"
+declare    APTG_MANUAL_PACKAGES=""
 
 aptg_try() {
-    declare -ri tryLimit="${APTG_TRY_LIMIT:-3}"
+    declare -ri tryLimit="${APTG_TRY_LIMIT}"
 
     if [[ $# -lt 1 ]]; then
         echo "${BASH_SOURCE[0]}: ${FUNCNAME[0]}: no command"
@@ -14,7 +15,7 @@ aptg_try() {
     declare -i tryCount=0 tryDelay
 
     while ((tryCount <= tryLimit)); do
-        if ! "$@"; then
+        if "$@"; then
             return
         fi
 
@@ -38,7 +39,11 @@ aptg_try() {
 }
 
 aptg_clean() {
-    echo "clean"
+    rm -fr /var/cache/apt/archives/
+    rm -fr /var/lib/apt/lists/*
+    rm -fr /var/log/apt/*
+    rm -f  /var/log/dpkg.log
+    rm -fr /tmp/*
 }
 
 aptg_purge_temporary_main() {
@@ -46,17 +51,42 @@ aptg_purge_temporary_main() {
 }
 
 aptg_install_main() {
+    declare temporaryMode="no" arg
+
+    for arg in "$@"; do
+        case "${arg}" in
+            --temporary)
+                temporaryMode="yes"
+                ;;
+            -*)
+                echo "${BASH_SOURCE[0]}: invalid option: ${arg}" >&2
+
+                exit 1
+                ;;
+        esac
+    done
+
+    export DEBIAN_FRONTEND="noninteractive"
+
     aptg_try apt-get update || {
         echo "${BASH_SOURCE[0]}: could not re-synchronize the APT package index"
 
         exit 1
     }
 
-    #    aptg_execute 2 apt-get --assume-yes install --no-install-recommends "${packages[@]}" || {
-    #        echo "${BASH_SOURCE[0]}: could not "
-    #
-    #        exit 1
-    #    }
+    if [[ "${temporaryMode}" == "yes" ]]; then
+        APTG_MANUAL_PACKAGES="$(apt-mark showmanual)"
+    fi
+
+    aptg_try apt-get --assume-yes install --no-install-recommends "$@" || {
+        echo "${BASH_SOURCE[0]}: could not complete installation of: $*" >&2
+
+        exit 1
+    }
+
+    if [[ "${temporaryMode}" == "no" ]]; then
+        aptg_clean
+    fi
 
     exit
 }
