@@ -47,7 +47,25 @@ aptg_clean() {
 }
 
 aptg_purge_temporary_main() {
-    echo "aptg_purge_temporary_main"
+    if [[ -z "${APTG_MANUAL_PACKAGES:-}" ]]; then
+        echo "${BASH_SOURCE[0]}: nothing to purge"
+
+        return
+    fi
+
+    # shellcheck disable=SC2015
+    {
+        apt-mark auto '.*' >/dev/null
+        apt-mark manual "${APTG_MANUAL_PACKAGES}" >/dev/null
+    } && {
+        apt-get --assume-yes purge --auto-remove --option APT::AutoRemove::RecommendsImportant=false
+    } || {
+        echo "${BASH_SOURCE[0]}: could not purge temporary installed packages" >&2
+
+        exit 1
+    }
+
+    aptg_clean
 }
 
 aptg_install_main() {
@@ -65,8 +83,6 @@ aptg_install_main() {
                 ;;
         esac
     done
-
-    export DEBIAN_FRONTEND="noninteractive"
 
     aptg_try apt-get update || {
         echo "${BASH_SOURCE[0]}: could not re-synchronize the APT package index"
