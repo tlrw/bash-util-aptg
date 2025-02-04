@@ -1,0 +1,8 @@
+name: "dev-tlrw-bash-util-aptg-01x"
+
+services:
+    dev:
+        image: "debian:12-slim"
+        command: ["sleep", "infinity"]
+        volumes:
+            - "./bin/aptg:/usr/local/bin/aptg"
