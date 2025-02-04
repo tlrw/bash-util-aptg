@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+declare -i APTG_TRY_LIMIT=3
+
+aptg_try() {
+    declare -ri tryLimit="${APTG_TRY_LIMIT:-3}"
+
+    if [[ $# -lt 1 ]]; then
+        echo "${BASH_SOURCE[0]}: ${FUNCNAME[0]}: no command"
+
+        exit 1
+    fi
+
+    declare -i tryCount=0 tryDelay
+
+    while ((tryCount <= tryLimit)); do
+        if ! "$@"; then
+            return
+        fi
+
+        if [[ "${tryCount}" -eq ${tryLimit} ]]; then
+            return 1
+        fi
+
+        if [[ "${tryCount}" -eq 0 ]]; then
+            tryDelay=1
+        else
+            tryDelay=$((tryDelay * 2))
+        fi
+
+        printf "Execution failed: %s\n" "ddd"
+        printf "Execution retry %s / %s failed. Retrying in %s seconds...\n" "$((tryCount + 1))" "${tryLimit}" "${tryDelay}"
+
+        sleep "${tryDelay}"
+
+        ((tryCount++))
+    done
+}
+
+aptg_clean() {
+    echo "clean"
+}
+
+aptg_purge_temporary_main() {
+    echo "aptg_purge_temporary_main"
+}
+
+aptg_install_main() {
+    aptg_try apt-get update || {
+        echo "${BASH_SOURCE[0]}: could not re-synchronize the APT package index"
+
+        exit 1
+    }
+
+    #    aptg_execute 2 apt-get --assume-yes install --no-install-recommends "${packages[@]}" || {
+    #        echo "${BASH_SOURCE[0]}: could not "
+    #
+    #        exit 1
+    #    }
+
+    exit
+}
+
+aptg_show_help() {
+    echo "no help entry"
+}
+
+aptg_main() {
+    if [[ $# -eq 0 ]]; then
+        aptg_show_help
+
+        exit 1
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            install)
+                shift
+                aptg_install_main "$@"
+                ;;
+            purge-temporary)
+                shift
+                aptg_purge_temporary_main "$@"
+                ;;
+            *)
+                echo "${BASH_SOURCE[0]}: invalid command" >&2
+
+                exit 1
+                ;;
+        esac
+    done
+}
+
+aptg_main "$@"
